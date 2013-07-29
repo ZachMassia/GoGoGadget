@@ -1,6 +1,10 @@
 // Package gadget is a framework for communicating to Arduino boards and components.
 package gadget
 
+import (
+	"time"
+)
+
 const (
 	// The following constants are all from Firmata.h
 	//
@@ -38,6 +42,13 @@ const (
 	// The baud rate the Arduino expects.
 	defaultBaud = 57600
 
+	// Message types
+	midiMsg byte = iota
+	sysexMsg
+
+	// Delay for auto-reset
+	initDelay time.Duration = 4 * time.Second
+
 	// Pin modes
 	INPUT  byte = 0x00 // Digital pin in input mode.
 	OUTPUT byte = 0x01 // Digital pin in output mode.
@@ -55,3 +66,11 @@ const (
 // Compile time checking to ensure only gadget.LOW || gadget.HIGH is used for
 // digital functions (DigitalWrite(), DigitalRead()).
 type state byte
+
+type message struct {
+	t    byte   // The type of message (MIDI or Sysex).
+	data []byte // The message data.
+}
+
+// A message handler.
+type callback func(message)
