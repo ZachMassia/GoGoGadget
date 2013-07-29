@@ -1,3 +1,4 @@
+// Package gadget is a framework for communicating to Arduino boards and components.
 package gadget
 
 const (
@@ -34,6 +35,9 @@ const (
 	sysexNonRealtime      byte = 0x7E // MIDI reserved for non-realtime messages.
 	sysexRealtime         byte = 0x7F // MIDI reserved for realtime messages.
 
+	// The baud rate the Arduino expects.
+	defaultBaud = 57600
+
 	// Pin modes
 	INPUT  byte = 0x00 // Digital pin in input mode.
 	OUTPUT byte = 0x01 // Digital pin in output mode.
@@ -48,4 +52,6 @@ const (
 	HIGH state = 1
 )
 
+// Compile time checking to ensure only gadget.LOW || gadget.HIGH is used for
+// digital functions (DigitalWrite(), DigitalRead()).
 type state byte
