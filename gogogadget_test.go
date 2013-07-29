@@ -18,6 +18,7 @@ func TestBadDevice(t *testing.T) {
 
 func TestStringer(t *testing.T) {
 	b := GetBoardAndErrorCheck(t)
+	defer b.Close()
 	if !strings.Contains(b.String(), *port) {
 		t.Fatalf("Board.String() does not contain '%s'. Got '%s'", *port, b)
 	}
