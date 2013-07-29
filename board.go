@@ -68,15 +68,47 @@ func (b *Board) parse(bytes <-chan byte) (out chan message) {
 	out = make(chan message)
 	go func() {
 		for {
-			// TODO: parse bytes into message
+			// The message to be sent out
+			msg := message{}
+
+			// Get the first byte of a message. Sysex commands have their own
+			// start byte so check for that first.
+			b := <-bytes
+			if b == startSysex {
+				msg.t = sysexMsg
+
+				buf := make([]byte, 128)
+				buf[0] = b
+
+				// Read into buf until sysexEnd
+				var i = 1
+				for b = range bytes {
+					buf[i] = b
+					i++
+					if b == endSysex {
+						break
+					}
+				}
+				msg.data = buf[:i]
+			} else {
+				// MIDI message
+				msg.t = midiMsg
+				msg.data = make([]byte, lenMidiMsg)
+				// Fill the data slice
+				msg.data[0] = b
+				for i := byte(0); i < lenMidiMsg; i++ {
+					msg.data[i] = <-bytes
+				}
+			}
+			// Send out the parsed message
+			out <- msg
 		}
 	}()
 	return
 }
 
 func (b *Board) handleCallback(m <-chan message) {
-	// The callback index.
-	var i byte
+	var i byte // The callback index.
 
 	for msg := range m {
 		switch msg.t {
