@@ -2,6 +2,7 @@
 package gadget
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -88,3 +89,23 @@ type callback func(message)
 
 // Map of message handlers.
 type cbMap map[byte]callback
+
+// Stores the response from 'reportVersion'.
+type Version struct {
+	Minor byte
+	Major byte
+}
+
+func (p Version) String() string {
+	return fmt.Sprintf("%d.%d", p.Major, p.Minor)
+}
+
+// Stores the response from 'reportFirmware'
+type Firmware struct {
+	V    Version
+	Name string
+}
+
+func (f Firmware) String() string {
+	return fmt.Sprintf("%s %s", f.Name, f.V)
+}

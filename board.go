@@ -9,9 +9,10 @@ import (
 )
 
 type Board struct {
-	cfg    *serial.Config
-	serial io.ReadWriteCloser
-
+	ver         Version
+	firm        Firmware
+	cfg         *serial.Config
+	serial      io.ReadWriteCloser
 	msgHandlers cbMap
 }
 
@@ -50,7 +51,19 @@ func (b *Board) String() string {
 }
 
 // Close properly closes the serial connection to Board b.
-func (b *Board) Close() { b.serial.Close() }
+func (b *Board) Close() {
+	b.serial.Close()
+}
+
+// Version returns the Firmata protocol version.
+func (b *Board) Version() Version {
+	return b.ver
+}
+
+// Firmware returns the Firmata firmware information.
+func (b *Board) Firmware() Firmware {
+	return b.firm
+}
 
 // Returns a read only channel on which the raw incoming bytes are sent.
 func (b *Board) read() (out chan byte) {
@@ -156,16 +169,15 @@ func (b *Board) AnalogWrite(pin, val byte) {
 	// TODO: Implement
 }
 
+// Store the response from reportVersion
 func (b *Board) handleReportVersion(m message) {
-	// TODO: Actually store version
-	log.Printf("Protocol version %d.%d", m.data[1], m.data[2])
+	b.ver.Major = m.data[1]
+	b.ver.Minor = m.data[2]
 }
 
+// Store the response from reportFirmware
 func (b *Board) handleReportFirmware(m message) {
-	// TODO: Actually store version
-	ver := fmt.Sprintf("%d.%d", m.data[2], m.data[3])
-
-	firmware := string(m.data[4:len(m.data)])
-
-	log.Printf("Firmware '%v' %s", firmware, ver)
+	b.firm.V.Major = m.data[2]
+	b.firm.V.Minor = m.data[3]
+	b.firm.Name = string(m.data[4:len(m.data)])
 }
