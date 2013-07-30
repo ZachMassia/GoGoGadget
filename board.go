@@ -179,5 +179,5 @@ func (b *Board) handleReportVersion(m message) {
 func (b *Board) handleReportFirmware(m message) {
 	b.firm.V.Major = m.data[2]
 	b.firm.V.Minor = m.data[3]
-	b.firm.Name = string(m.data[4:len(m.data)])
+	b.firm.Name = string(m.data[4 : len(m.data)-1])
 }
