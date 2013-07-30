@@ -1,18 +1,18 @@
 package gadget
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/tarm/goserial"
 	"io"
 	"log"
-	"time"
 )
 
 type Board struct {
 	cfg    *serial.Config
 	serial io.ReadWriteCloser
 
-	msgHandlers [255]callback
+	msgHandlers cbMap
 }
 
 func New(device string) (b *Board, err error) {
@@ -26,14 +26,20 @@ func New(device string) (b *Board, err error) {
 	if err != nil {
 		return nil, err
 	}
-
-	time.AfterFunc(initDelay, b.init)
+	b.init()
 	return
 }
 
 // Prepares Board b for use. Assumes that the serial connection
 // has been properly established.
 func (b *Board) init() {
+	// Register the callbacks
+	b.msgHandlers = cbMap{
+		reportVersion:  b.handleReportVersion,
+		reportFirmware: b.handleReportFirmware,
+	}
+
+	// Start the message handling system
 	byteChan := b.read()
 	msgChan := b.parse(byteChan)
 	go b.handleCallback(msgChan)
@@ -50,8 +56,8 @@ func (b *Board) Close() { b.serial.Close() }
 func (b *Board) read() (out chan byte) {
 	out = make(chan byte)
 	go func() {
-		buf := make([]byte, 1)
 		for {
+			buf := make([]byte, 1)
 			// Read blocks until a byte is returned.
 			// Once it is received, send it down the processing chain.
 			if _, err := b.serial.Read(buf); err != nil {
@@ -64,41 +70,40 @@ func (b *Board) read() (out chan byte) {
 }
 
 // Parse raw bytes into messages and send them out.
-func (b *Board) parse(bytes <-chan byte) (out chan message) {
+func (b *Board) parse(byteChan <-chan byte) (out chan message) {
 	out = make(chan message)
 	go func() {
 		for {
-			// The message to be sent out
 			msg := message{}
+			buf := make([]byte, 255)
+			buf[0] = <-byteChan // Get the first byte of a message.
 
-			// Get the first byte of a message. Sysex commands have their own
-			// start byte so check for that first.
-			b := <-bytes
-			if b == startSysex {
+			// Sysex commands have their own header so check for that first.
+			if buf[0] == startSysex {
 				msg.t = sysexMsg
-
-				buf := make([]byte, 128)
-				buf[0] = b
 
 				// Read into buf until sysexEnd
 				var i = 1
-				for b = range bytes {
-					buf[i] = b
+				for data := range byteChan {
+					buf[i] = data
 					i++
-					if b == endSysex {
+					if data == endSysex {
 						break
 					}
 				}
 				msg.data = buf[:i]
 			} else {
-				// MIDI message
 				msg.t = midiMsg
-				msg.data = make([]byte, lenMidiMsg)
-				// Fill the data slice
-				msg.data[0] = b
-				for i := byte(0); i < lenMidiMsg; i++ {
-					msg.data[i] = <-bytes
+
+				// Make sure the first byte is a valid MIDI header
+				for !bytes.Contains(midiHeaders, buf[:1]) {
+					buf[0] = <-byteChan
 				}
+				// Get the rest of the MIDI message
+				for i := byte(1); i < lenMidiMsg; i++ {
+					buf[i] = <-byteChan
+				}
+				msg.data = buf[:lenMidiMsg]
 			}
 			// Send out the parsed message
 			out <- msg
@@ -108,27 +113,24 @@ func (b *Board) parse(bytes <-chan byte) (out chan message) {
 }
 
 func (b *Board) handleCallback(m <-chan message) {
-	var i byte // The callback index.
-
+	var key byte
 	for msg := range m {
 		switch msg.t {
 		case midiMsg:
 			// Check for multibyte MIDI message.
 			if msg.data[0] < 0xF0 {
-				i = msg.data[0] & 0xF0 // multibyte
+				key = msg.data[0] & 0xF0 // multibyte
 			} else {
-				i = msg.data[0]
+				key = msg.data[0]
 			}
-
 		case sysexMsg:
-			// The second byte is used as the index, as the first
-			// contains the sysexStart byte.
-			i = msg.data[1]
-
+			// The second byte is used as the key, since the first contains the sysexStart byte.
+			key = msg.data[1]
 		}
+
 		// Try to call the handler
-		if b.msgHandlers[i] != nil {
-			b.msgHandlers[i](msg)
+		if cb, ok := b.msgHandlers[key]; ok {
+			cb(msg)
 		}
 	}
 }
@@ -152,4 +154,18 @@ func (b *Board) AnalogRead(pin byte) byte {
 // AnalogWrite sets the PWM out value of the analog pin.
 func (b *Board) AnalogWrite(pin, val byte) {
 	// TODO: Implement
+}
+
+func (b *Board) handleReportVersion(m message) {
+	// TODO: Actually store version
+	log.Printf("Protocol version %d.%d", m.data[1], m.data[2])
+}
+
+func (b *Board) handleReportFirmware(m message) {
+	// TODO: Actually store version
+	ver := fmt.Sprintf("%d.%d", m.data[2], m.data[3])
+
+	firmware := string(m.data[4:len(m.data)])
+
+	log.Printf("Firmware '%v' %s", firmware, ver)
 }

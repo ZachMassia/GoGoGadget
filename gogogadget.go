@@ -66,6 +66,14 @@ const (
 	HIGH state = 1
 )
 
+var (
+	midiHeaders = []byte{
+		digitalMessage,
+		analogMessage,
+		reportVersion,
+	}
+)
+
 // Compile time checking to ensure only gadget.LOW || gadget.HIGH is used for
 // digital functions (DigitalWrite(), DigitalRead()).
 type state byte
@@ -77,3 +85,6 @@ type message struct {
 
 // A message handler.
 type callback func(message)
+
+// Map of message handlers.
+type cbMap map[byte]callback
