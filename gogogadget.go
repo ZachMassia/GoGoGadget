@@ -2,7 +2,6 @@
 package gadget
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -52,7 +51,10 @@ const (
 
 	// Delay for auto-reset
 	initDelay time.Duration = 4 * time.Second
+)
 
+// Exported constants
+const (
 	// Pin modes
 	INPUT  byte = 0x00 // Digital pin in input mode.
 	OUTPUT byte = 0x01 // Digital pin in output mode.
@@ -80,8 +82,8 @@ var (
 type state byte
 
 type message struct {
-	t    byte   // The type of message (MIDI or Sysex).
-	data []byte // The message data.
+	t    byte   // MIDI or Sysex.
+	data []byte // The message data including any start/end bytes.
 }
 
 // A message handler.
@@ -89,23 +91,3 @@ type callback func(message)
 
 // Map of message handlers.
 type cbMap map[byte]callback
-
-// Stores the response from 'reportVersion'.
-type Version struct {
-	Minor byte
-	Major byte
-}
-
-func (p Version) String() string {
-	return fmt.Sprintf("%d.%d", p.Major, p.Minor)
-}
-
-// Stores the response from 'reportFirmware'
-type Firmware struct {
-	V    Version
-	Name string
-}
-
-func (f Firmware) String() string {
-	return fmt.Sprintf("%s %s", f.Name, f.V)
-}
