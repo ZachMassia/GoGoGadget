@@ -3,33 +3,49 @@ package gadget
 import (
 	"bufio"
 	"bytes"
-	//	"encoding/hex"
 	"fmt"
 	"github.com/ZachMassia/goserial"
 	"io"
 	"log"
+	"time"
 )
 
 type Board struct {
-	// Serial connection related.
-	cfg    *serial.Config
-	fd     uintptr
-	buf    *bufio.Reader
-	serial io.ReadWriteCloser
+	cfg    *serial.Config     // Port and baud rate
+	fd     uintptr            // Serial port file descriptor.
+	buf    *bufio.Reader      // Buffered reading from serial.
+	serial io.ReadWriteCloser // The serial connection.
 
-	// Firmware information.
-	maj, min byte
-	firmware string
+	maj, min byte   // Firmware version
+	firmware string // The name of the sketch uploaded to the board.
 
+	// Has the initial pin capability response been handled.
+	pinsInitialized bool
+
+	// The pins are stored in structs, with the key being that pins number.
+	// Analog pins do not use the A0 numbering.
+	analogPins, digitalPins map[byte]*pin
+
+	// A mapping of message handlers, the key is the command byte.
 	msgHandlers cbMap
+
+	// This channel is used to tell New that the board received
+	// the capability response and the board is fully configured
+	// and ready to return.
+	ready chan bool
 }
 
+// New returns a fully configured Board, with the message handling
+// loop running in it's own goroutine.
 func New(device string) (b *Board, err error) {
 	b = &Board{
 		cfg: &serial.Config{
 			Name: device,
 			Baud: defaultBaud,
 		},
+		ready:       make(chan bool),
+		analogPins:  make(map[byte]*pin),
+		digitalPins: make(map[byte]*pin),
 	}
 
 	b.serial, err, b.fd = serial.OpenPort(b.cfg)
@@ -45,6 +61,11 @@ func New(device string) (b *Board, err error) {
 
 	b.buf = bufio.NewReader(b.serial)
 	b.init()
+
+	// Wait for the board to be configured.
+	<-b.ready
+	close(b.ready)
+
 	return
 }
 
@@ -53,11 +74,14 @@ func New(device string) (b *Board, err error) {
 func (b *Board) init() {
 	// Register the callbacks.
 	b.msgHandlers = cbMap{
-		reportVersion:  b.handleReportVersion,
-		reportFirmware: b.handleReportFirmware,
+		reportVersion:      b.handleReportVersion,
+		reportFirmware:     b.handleReportFirmware,
+		capabilityResponse: b.handleCapabilityResponse,
 	}
 	// Start the message loop.
 	go b.run()
+
+	time.AfterFunc(3*time.Second, b.sendCapabilityQuery)
 }
 
 func (b *Board) run() {
@@ -117,6 +141,27 @@ func (b *Board) handleCallback(msg message) {
 	}
 }
 
+// Initializes the pins if it has not already been done.
+func (b *Board) initPins(analog, digital map[byte][]byte) {
+	if b.pinsInitialized {
+		return
+	}
+	b.pinsInitialized = true
+
+	// Initialize the analog pins.
+	for pin, modes := range analog {
+		b.analogPins[pin] = newPin(b.serial, pin, modes)
+	}
+
+	// Intialize the digital pins.
+	for pin, modes := range digital {
+		b.digitalPins[pin] = newPin(b.serial, pin, modes)
+	}
+
+	// Send the ready message to New() so it can return.
+	b.ready <- true
+}
+
 func (b *Board) String() string {
 	return fmt.Sprintf("Arduino on device '%s'", b.cfg.Name)
 }
@@ -158,16 +203,45 @@ func (b *Board) AnalogWrite(pin, val byte) {
 	// TODO: Implement
 }
 
+// -- Message Sending Functions -- //
+
+func (b *Board) sendCapabilityQuery() {
+	msg := wrapInSysex([]byte{capabilityQuery})
+	b.serial.Write(msg)
+}
+
+// -- Message Handling Functions -- //
+
 // Store the response from reportVersion
 func (b *Board) handleReportVersion(m message) {
 	b.maj = m.data[1]
 	b.min = m.data[2]
-	//log.Print(b.Version())
 }
 
-// Store the response from reportFirmware
+// Store the response from reportFirmware.
 func (b *Board) handleReportFirmware(m message) {
 	b.firmware = string(m.data[4 : len(m.data)-1])
-	//log.Print(b.Firmware())
-	//log.Printf("Firmware: -- HEXDUMP -- \n %s", hex.Dump(m.data))
+}
+
+// Parse the capability response and pass to initPins.
+func (b *Board) handleCapabilityResponse(m message) {
+	currentPin := byte(0)
+	analogPins := make(map[byte][]byte)
+	digitalPins := make(map[byte][]byte)
+
+	// Create a buffer containing just the pin mode (bytes 2 to END-1)
+	buf := bytes.NewBuffer(m.data[2 : len(m.data)-1])
+	for buf.Len() > 0 {
+		d, _ := buf.ReadBytes(0x7F)
+		info := unpackPinModeDataSlice(d[:len(d)-1]) // drop the 0x7F delimiter
+
+		switch {
+		case bytes.Contains(d, []byte{ANALOG}):
+			analogPins[currentPin] = info
+		case bytes.Contains(d, []byte{DIGITAL}):
+			digitalPins[currentPin] = info
+		}
+		currentPin++
+	}
+	b.initPins(analogPins, digitalPins)
 }

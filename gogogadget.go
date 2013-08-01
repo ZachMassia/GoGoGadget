@@ -1,10 +1,6 @@
 // Package gadget is a framework for communicating to Arduino boards and components.
 package gadget
 
-import (
-	"time"
-)
-
 const (
 	// The following constants are all from Firmata.h
 	//
@@ -48,38 +44,13 @@ const (
 	// Message types
 	midiMsg byte = iota
 	sysexMsg
-
-	// Delay for auto-reset
-	initDelay time.Duration = 4 * time.Second
 )
 
-// Exported constants
-const (
-	// Pin modes
-	INPUT  byte = 0x00 // Digital pin in input mode.
-	OUTPUT byte = 0x01 // Digital pin in output mode.
-	ANALOG byte = 0x02 // Analog pin in analogInput mode.
-	PWM    byte = 0x03 // Digital pin in PWM output mode.
-	SERVO  byte = 0x04 // Digital pin in Servo output mode.
-	SHIFT  byte = 0x05 // shiftIn/shiftOut mode.
-	I2C    byte = 0x06 // Pin included in I2C setup.
-
-	// Pin states
-	LOW  state = 0
-	HIGH state = 1
-)
-
-var (
-	midiHeaders = []byte{
-		digitalMessage,
-		analogMessage,
-		reportVersion,
-	}
-)
-
-// Compile time checking to ensure only gadget.LOW || gadget.HIGH is used for
-// digital functions (DigitalWrite(), DigitalRead()).
-type state byte
+var midiHeaders = []byte{
+	digitalMessage,
+	analogMessage,
+	reportVersion,
+}
 
 type message struct {
 	t    byte   // MIDI or Sysex.
@@ -91,3 +62,24 @@ type callback func(message)
 
 // Map of message handlers.
 type cbMap map[byte]callback
+
+//
+// -- Utility functions -- //
+
+func boolToByte(b bool) byte {
+	if b {
+		return 1
+	} else {
+		return 0
+	}
+}
+
+func pinToPort(n byte) byte {
+	return (n >> 3) & 0x0F
+}
+
+func wrapInSysex(msg []byte) (sysex []byte) {
+	sysex = append([]byte{startSysex}, msg...)
+	sysex = append(sysex, endSysex)
+	return
+}
