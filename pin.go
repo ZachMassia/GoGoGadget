@@ -83,6 +83,7 @@ func newPin(s io.Writer, pinNum byte, modes []byte) (p *pin) {
 	if bytes.Contains(p.supportedModes, []byte{ANALOG}) {
 		p.mode = ANALOG
 	}
+	p.setMode(p.mode) // Actually set the default mode.
 	return
 }
 
@@ -105,7 +106,7 @@ func (p *pin) setMode(mode byte) (err error) {
 
 func (p *pin) setReporting(newState bool) (err error) {
 	// Do not turn on reporting for non input pin.
-	if newState && (p.mode != INPUT || p.mode != ANALOG) {
+	if newState && (p.mode != INPUT && p.mode != ANALOG) {
 		return fmt.Errorf("Pin %d not in INPUT or ANALOG mode", p.num)
 	}
 	p.reporting = newState
