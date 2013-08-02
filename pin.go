@@ -106,7 +106,7 @@ func (p *pin) setMode(mode byte) (err error) {
 func (p *pin) setReporting(newState bool) (err error) {
 	// Do not turn on reporting for non input pin.
 	if newState && (p.mode != INPUT || p.mode != ANALOG) {
-		return fmt.Errorf("Pin %d not in INPUT or ANALOG ")
+		return fmt.Errorf("Pin %d not in INPUT or ANALOG mode", p.num)
 	}
 	p.reporting = newState
 
