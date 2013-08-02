@@ -236,9 +236,9 @@ func (b *Board) handleCapabilityResponse(m message) {
 		info := unpackPinModeDataSlice(d[:len(d)-1]) // drop the 0x7F delimiter
 
 		switch {
-		case bytes.Contains(d, []byte{ANALOG}):
+		case bytes.Contains(info, []byte{ANALOG}):
 			analogPins[currentPin] = info
-		case bytes.Contains(d, []byte{DIGITAL}):
+		case bytes.Contains(info, []byte{INPUT, OUTPUT}):
 			digitalPins[currentPin] = info
 		}
 		currentPin++
