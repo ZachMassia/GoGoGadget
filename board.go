@@ -230,30 +230,92 @@ func (b *Board) Firmware() string {
 }
 
 // DigitalRead returns the state of the digital pin.
-func (b *Board) DigitalRead(pin byte) state {
-	return 0
+func (b *Board) DigitalRead(pin byte) (s state, err error) {
+	// TODO: Implement
+	return
 }
 
 // DigitalWrite sets the state of the digital pin.
-func (b *Board) DigitalWrite(pin byte, s state) {
+func (b *Board) DigitalWrite(pin byte, s state) (err error) {
 	// TODO: Implement
+	return
 }
 
 // AnalogRead returns the value of the analog pin.
 // Takes an analog pin number between 0-15.
-func (b *Board) AnalogRead(pin byte) byte {
+func (b *Board) AnalogRead(pin byte) (v byte, err error) {
 	// TODO: Implement
-	return 0
+	return
 }
 
 // AnalogWrite sets the PWM out value of the analog pin.
 // Takes an analog pin number between 0-15.
-func (b *Board) AnalogWrite(pin, val byte) {
+func (b *Board) AnalogWrite(pin, val byte) (err error) {
 	// TODO: Implement
+	return
 }
 
-func (b *Board) SetPinMode(pin, mode byte) {
+// SetPinMode seta a pin to a given mode if it is supported.
+func (b *Board) SetPinMode(pin, mode byte) (err error) {
+	// TODO: Implement
+	return
+}
 
+// SetPinReporting toggles reporting of a pin. It must be enabled
+// before calling Analog/Digital Read.
+//
+// Analog pins use the A0 style number printed on the board.
+// For digital pins, the normal pin number is passed in, but
+// reporting is toggled for that pins whole port (8 pins to a port).
+//
+// To use an analog pin in digital mode, pass the normal pin number.
+// This can be obtained by AnalogMapping().
+func (b *Board) SetPinReporting(pin byte, report bool) (err error) {
+	// TODO: Implement
+	return
+}
+
+// PortToPinMapping returns a mapping of port numbers to it's pins.
+// The key is the port number.
+// The value is a []byte of pin numbers, in random order.
+func (b *Board) PortToPinMapping() (m map[byte][]byte) {
+	m = make(map[byte][]byte)
+
+	// Combine both pin types temporarily.
+	pins := make(map[byte]*pin)
+	for num, pin := range b.analogPins {
+		pins[num] = pin
+	}
+	for num, pin := range b.digitalPins {
+		pins[num] = pin
+	}
+
+	// Fill the response map.
+	for _, pin := range pins {
+		// Create the slice for this port if not already done.
+		if _, ok := m[pin.port]; !ok {
+			m[pin.port] = make([]byte, 0, 8)
+		}
+		m[pin.port] = append(m[pin.port], pin.num)
+	}
+	return
+}
+
+// AnalogMapping returns a slice of pin numbers. The key is
+// the A0 style number printed on the board, the value is it's
+// internal representation.
+// This is useful if you would like to use an analog pin
+// in digital mode.
+func (b *Board) AnalogMapping() (m []byte) {
+	m = make([]byte, len(b.analogMapping))
+
+	// Reverse the order of the key value. This is
+	// more convenient for the user as the analog numbers
+	// are printed on the board.
+	for normalNum, analogNum := range b.analogMapping {
+		m[analogNum] = normalNum
+	}
+	return
 }
 
 // -- Message Sending Functions -- //
@@ -264,7 +326,6 @@ func (b *Board) sendSysex(msg []byte) (n int, err error) {
 	m := wrapInSysex(msg)
 	n, err = b.serial.Write(m)
 	return
-
 }
 
 func (b *Board) sendCapabilityQuery()    { b.sendSysex([]byte{capabilityQuery}) }
