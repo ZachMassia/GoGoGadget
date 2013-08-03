@@ -61,6 +61,11 @@ type pin struct {
 	// real number, not the Arduino style A0-A15.
 	num byte
 
+	// Pins in analog mode must be refered to based on
+	// the Arduino style A0. This number has no use for
+	// digital only pins and will be set to 0.
+	analogNum byte
+
 	// When a pin is in digital in/out mode, reporting
 	// is based on ports containing 8 pins. This is
 	// the pins port number.
@@ -72,18 +77,24 @@ type pin struct {
 }
 
 // Returns an analog pin.
-func newPin(s io.Writer, pinNum byte, modes []byte) (p *pin) {
+func newPin(s io.Writer, pinNum, aPinNum byte, modes []byte) (p *pin) {
 	p = &pin{
 		serial:         s,
 		num:            pinNum,
+		analogNum:      aPinNum,
 		port:           pinToPort(pinNum),
 		supportedModes: modes,
 	}
-	// Set analog capable pins to analog mode by default.
+
+	// Set the default pin mode.
 	if bytes.Contains(p.supportedModes, []byte{ANALOG}) {
-		p.mode = ANALOG
+		p.setMode(ANALOG)
+		// Analog pins report by default. Turn it off
+		// until requested by the user.
+		p.setReporting(false)
+	} else {
+		p.setMode(OUTPUT) // Digital pin default.
 	}
-	p.setMode(p.mode) // Actually set the default mode.
 	return
 }
 
@@ -95,8 +106,15 @@ func (p *pin) setMode(mode byte) (err error) {
 		return fmt.Errorf("Pin mode %X not valid", mode)
 
 	case !bytes.Contains(p.supportedModes, []byte{mode}):
-		return fmt.Errorf("Pin mode %s not supported by pin", PinModeString[mode])
+		return fmt.Errorf("Pin mode %s not supported by pin %d", PinModeString[mode], p.num)
+
+	case mode == p.mode:
+		// TODO: Should this return nil? Technically not an error.
+		return fmt.Errorf("Pin %d already in %s mode", p.num, PinModeString[mode])
 	}
+
+	// Update the pins mode flag.
+	p.mode = mode
 
 	// Send the message.
 	msg := []byte{setPinMode, p.num, mode}
@@ -117,10 +135,11 @@ func (p *pin) setReporting(newState bool) (err error) {
 	switch p.mode {
 	case ANALOG:
 		msg = []byte{
-			reportAnalog | p.num,
+			reportAnalog | p.analogNum,
 			boolToByte(newState),
 		}
-	default:
+	case INPUT:
+	case OUTPUT:
 		// TODO: This is only a temporary solution.
 		//       Proper checking for pins in modes
 		//       other than INPUT/OUPUT should be done.
