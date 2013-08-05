@@ -294,8 +294,6 @@ func (b *Board) AnalogRead(pin byte) (v byte, err error) {
 
 // AnalogWrite sets the PWM out value of the analog pin.
 func (b *Board) AnalogWrite(pin, val byte) (err error) {
-	log.Fatal("AnalogWrite not yet implemented") // Incase I forget PWM is not implemented yet
-
 	p, ok := b.pins[pin]
 	if !ok {
 		return fmt.Errorf("Invalid pin: %d", pin)
@@ -303,7 +301,12 @@ func (b *Board) AnalogWrite(pin, val byte) (err error) {
 	// Only write to pins in PWM mode
 	if p.mode == PWM {
 		p.analogVal = val
-		// TODO: Actually write the value to the pin.
+		msg := []byte{
+			analogMessage | p.num,
+			val & 0x7F,
+			(val >> 7) & 0x7F,
+		}
+		b.serial.Write(msg)
 	} else {
 		err = fmt.Errorf("Pin %d not in PWM mode, got %s", pin, PinModeString[p.mode])
 	}
