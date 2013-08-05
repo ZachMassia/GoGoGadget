@@ -377,8 +377,14 @@ func (b *Board) sendAnalogMappingQuery() { b.sendSysex([]byte{analogMappingQuery
 // -- Message Handling Functions -- //
 
 func (b *Board) handleAnalogMessage(m message) {
-	// TODO: Implement
-	log.Printf("ANALOG PIN %d VAL %d", m.data[0]&0x0F, m.data[0]|m.data[1]<<7)
+	pinNum := m.data[0] & 0x0F
+	pinVal := m.data[1] | m.data[2]<<7
+
+	if int(pinNum) < len(b.analogToNormal) {
+		if pin, ok := b.pins[b.analogToNormal[pinNum]]; ok {
+			pin.analogVal = pinVal
+		}
+	}
 }
 
 func (b *Board) handleDigitalMessage(m message) {
