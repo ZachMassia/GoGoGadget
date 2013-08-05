@@ -71,6 +71,12 @@ type pin struct {
 	// the pins port number.
 	port byte
 
+	// When in INPUT/ANALOG mode, these hold the last
+	// reported value. In PWM/OUPUT, they hold the last
+	// set value.
+	analogVal  byte
+	digitalVal state
+
 	mode           byte   // The current mode.
 	reporting      bool   // Is the pin (or port in digital mode) reporting.
 	supportedModes []byte // The valid modes for this pin.
@@ -132,14 +138,14 @@ func (p *pin) setReporting(newState bool) (err error) {
 	var msg []byte
 
 	// Create the message to send
-	switch p.mode {
-	case ANALOG:
+	switch {
+	case p.mode == ANALOG:
 		msg = []byte{
 			reportAnalog | p.analogNum,
 			boolToByte(newState),
 		}
-	case INPUT:
-	case OUTPUT:
+
+	case p.mode == OUTPUT || p.mode == INPUT:
 		// TODO: This is only a temporary solution.
 		//       Proper checking for pins in modes
 		//       other than INPUT/OUPUT should be done.

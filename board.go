@@ -24,11 +24,15 @@ type Board struct {
 
 	// The pins are stored in structs, with the key being that pins number.
 	// Analog pins do not use the A0 numbering.
-	analogPins, digitalPins map[byte]*pin
+	pins map[byte]*pin
 
 	// A mapping of normal pin number to their analog (A0 style) numbers.
 	// A value of 0x7F (127) means the pin is digital only.
 	analogMapping map[byte]byte
+
+	// The reverse of the above mapping, used for quick look up of
+	// an analog pin based on it's A0 style number.
+	analogToNormal []byte
 
 	// A mapping of message handlers, the key is the command byte.
 	msgHandlers cbMap
@@ -53,8 +57,7 @@ func New(device string) (b *Board, err error) {
 		},
 		ready:           make(chan bool),
 		boardDoneReboot: make(chan bool),
-		analogPins:      make(map[byte]*pin),
-		digitalPins:     make(map[byte]*pin),
+		pins:            make(map[byte]*pin),
 		analogMapping:   make(map[byte]byte),
 	}
 
@@ -168,8 +171,8 @@ func (b *Board) handleCallback(msg message) {
 // Initializes the pins if it has not already been done.
 func (b *Board) initPins(analog, digital map[byte][]byte) {
 	if b.pinsInitialized {
-		// Nothing to do here.
-		return
+		// TODO: Use sync.Once to avoid this check?
+		return // Nothing to do here.
 	}
 
 	// The analogMappingReponse must be handled before the pins
@@ -177,19 +180,22 @@ func (b *Board) initPins(analog, digital map[byte][]byte) {
 	if len(b.analogMapping) == 0 {
 		// Resend the analog mapping request.
 		b.sendAnalogMappingQuery()
-		// Give it a a seconds then try to init the pins again by
+		// Give it a little time then try to init the pins again by
 		// sending another capability request.
 		//
 		// TODO: Store the maps passed to init so that it can be called
 		//       directly without sending another request to the board.
-		time.AfterFunc(1*time.Second, func() { b.sendCapabilityQuery() })
+		time.AfterFunc(250*time.Millisecond, func() { b.sendCapabilityQuery() })
 		return
 	}
+
+	b.analogToNormal = make([]byte, len(b.analogMapping))
 
 	// Initialize the analog pins.
 	for pin, modes := range analog {
 		if analogNum, ok := b.analogMapping[pin]; ok {
-			b.analogPins[pin] = newPin(b.serial, pin, analogNum, modes)
+			b.pins[pin] = newPin(b.serial, pin, analogNum, modes)
+			b.analogToNormal[analogNum] = pin
 		} else {
 			log.Printf("Error initializing analog pin %d", pin)
 		}
@@ -199,7 +205,7 @@ func (b *Board) initPins(analog, digital map[byte][]byte) {
 	for pin, modes := range digital {
 		// 0x7F is passed directly as the analog pin number
 		// since it does not apply to digital pins.
-		b.digitalPins[pin] = newPin(b.serial, pin, 0x7F, modes)
+		b.pins[pin] = newPin(b.serial, pin, 0x7F, modes)
 	}
 
 	// Send the ready message to New() so it can return.
@@ -231,67 +237,110 @@ func (b *Board) Firmware() string {
 
 // DigitalRead returns the state of the digital pin.
 func (b *Board) DigitalRead(pin byte) (s state, err error) {
-	// TODO: Implement
+	p, ok := b.pins[pin]
+	if !ok {
+		return 0, fmt.Errorf("Invalid pin: %d", pin)
+	}
+
+	s = p.digitalVal
 	return
 }
 
 // DigitalWrite sets the state of the digital pin.
 func (b *Board) DigitalWrite(pin byte, s state) (err error) {
-	// TODO: Implement
+	port := pinToPort(pin)
+	portVal := byte(0)
+
+	// Before looping, update the value of the pin DigitalWrite was called on.
+	if p, ok := b.pins[pin]; ok {
+		p.digitalVal = s
+	}
+
+	// Create the port bitmask.
+	for i := byte(0); i < 8; i++ {
+		n := 8*port + i // current pin
+		p, ok := b.pins[n]
+		if !ok {
+			err = fmt.Errorf("Bad pin: %d", n) // TODO: Better error msg
+			return err
+		}
+		if p.digitalVal != LOW {
+			portVal |= 1 << i
+		}
+	}
+
+	// Write the bitmask to the port.
+	msg := []byte{
+		digitalMessage | port,
+		portVal & 0x7F,
+		(portVal >> 7) & 0x7F,
+	}
+	b.serial.Write(msg)
 	return
 }
 
 // AnalogRead returns the value of the analog pin.
-// Takes an analog pin number between 0-15.
+//
+// If the pin is not in ANALOG or PWM mode, the value
+// is garbage.
 func (b *Board) AnalogRead(pin byte) (v byte, err error) {
-	// TODO: Implement
+	p, ok := b.pins[pin]
+	if !ok {
+		return 0, fmt.Errorf("Invalid pin: %d", pin)
+	}
+	v = p.analogVal
 	return
 }
 
 // AnalogWrite sets the PWM out value of the analog pin.
-// Takes an analog pin number between 0-15.
 func (b *Board) AnalogWrite(pin, val byte) (err error) {
-	// TODO: Implement
+	log.Fatal("AnalogWrite not yet implemented") // Incase I forget PWM is not implemented yet
+
+	p, ok := b.pins[pin]
+	if !ok {
+		return fmt.Errorf("Invalid pin: %d", pin)
+	}
+	// Only write to pins in PWM mode
+	if p.mode == PWM {
+		p.analogVal = val
+		// TODO: Actually write the value to the pin.
+	} else {
+		err = fmt.Errorf("Pin %d not in PWM mode, got %s", pin, PinModeString[p.mode])
+	}
 	return
 }
 
-// SetPinMode seta a pin to a given mode if it is supported.
+// SetPinMode set a pin to a given mode if it is supported.
 func (b *Board) SetPinMode(pin, mode byte) (err error) {
-	// TODO: Implement
-	return
+	p, ok := b.pins[pin]
+	if !ok {
+		return fmt.Errorf("Invalid pin: %d", pin)
+	}
+	return p.setMode(mode)
 }
 
-// SetPinReporting toggles reporting of a pin. It must be enabled
-// before calling Analog/Digital Read.
-//
-// Analog pins use the A0 style number printed on the board.
-// For digital pins, the normal pin number is passed in, but
-// reporting is toggled for that pins whole port (8 pins to a port).
+// SetDigitalPinReporting toggles reporting of a digital pin. It must be enabled
+// before calling DigitalRead.
 //
 // To use an analog pin in digital mode, pass the normal pin number.
 // This can be obtained by AnalogMapping().
 func (b *Board) SetPinReporting(pin byte, report bool) (err error) {
-	// TODO: Implement
-	return
+	p, ok := b.pins[pin]
+	if !ok {
+		return fmt.Errorf("Invalid pin: %d", pin)
+	}
+	return p.setReporting(report)
 }
 
 // PortToPinMapping returns a mapping of port numbers to it's pins.
+//
 // The key is the port number.
 // The value is a []byte of pin numbers, in random order.
 func (b *Board) PortToPinMapping() (m map[byte][]byte) {
 	m = make(map[byte][]byte)
 
-	// Combine both pin types temporarily.
-	pins := make(map[byte]*pin)
-	for num, pin := range b.analogPins {
-		pins[num] = pin
-	}
-	for num, pin := range b.digitalPins {
-		pins[num] = pin
-	}
-
 	// Fill the response map.
-	for _, pin := range pins {
+	for _, pin := range b.pins {
 		// Create the slice for this port if not already done.
 		if _, ok := m[pin.port]; !ok {
 			m[pin.port] = make([]byte, 0, 8)
@@ -301,20 +350,14 @@ func (b *Board) PortToPinMapping() (m map[byte][]byte) {
 	return
 }
 
-// AnalogMapping returns a slice of pin numbers. The key is
-// the A0 style number printed on the board, the value is it's
-// internal representation.
-// This is useful if you would like to use an analog pin
-// in digital mode.
+// AnalogMapping returns a slice of pin numbers.
+//
+// The key is the A0 style number printed on the board,
+// The value is it's normal pin number.
 func (b *Board) AnalogMapping() (m []byte) {
-	m = make([]byte, len(b.analogMapping))
-
-	// Reverse the order of the key value. This is
-	// more convenient for the user as the analog numbers
-	// are printed on the board.
-	for normalNum, analogNum := range b.analogMapping {
-		m[analogNum] = normalNum
-	}
+	// Return a copy to avoid having the internal values changed.
+	m = make([]byte, len(b.analogToNormal))
+	copy(m, b.analogToNormal)
 	return
 }
 
@@ -334,14 +377,23 @@ func (b *Board) sendAnalogMappingQuery() { b.sendSysex([]byte{analogMappingQuery
 // -- Message Handling Functions -- //
 
 func (b *Board) handleAnalogMessage(m message) {
+	// TODO: Implement
 	log.Printf("ANALOG PIN %d VAL %d", m.data[0]&0x0F, m.data[0]|m.data[1]<<7)
 }
 
 func (b *Board) handleDigitalMessage(m message) {
-	port := m.data[0] & 0x0F
-	lsb, msb := m.data[1], m.data[2]
-	portVal := lsb | msb<<7
-	log.Printf("DIGITAL PORT %X VAL %b", port, portVal)
+	portNum := m.data[0] & 0x0F
+	portVal := m.data[1] | m.data[2]<<7
+
+	// TODO: Instead of looping over all pins, find the first pin
+	//       of the port and loop over the next eight.
+	for _, pin := range b.pins {
+		if pin.port == portNum && pin.mode == INPUT {
+			i := pin.num % 8 // Find the pins number relative to the port
+			pinVal := (portVal >> (i & 0x07)) & 0x01
+			pin.digitalVal = state(pinVal)
+		}
+	}
 }
 
 // Store the response from reportVersion
@@ -391,15 +443,14 @@ func (b *Board) handleAnalogMappingResponse(m message) {
 	// the value is the analog pin number, or 0x7F (127) if the pin
 	// does not support analog.
 	for pin, num := range m.data[2 : len(m.data)-1] {
-		if num != 0x7F {
-			b.analogMapping[byte(pin)] = num
+		b.analogMapping[byte(pin)] = num
 
-			// Hack until I figure out why Firmata sends
-			// A13 (pin 67) as A10.
-			// TODO: FIXME
-			if pin == 67 {
-				b.analogMapping[byte(pin)] = 13
-			}
+		// Hack until I figure out why Firmata sends
+		// A13 (pin 67) as A10.
+		// TODO: FIXME
+		if pin == 67 {
+			b.analogMapping[byte(pin)] = 13
 		}
+
 	}
 }
