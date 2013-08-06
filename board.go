@@ -7,6 +7,7 @@ import (
 	"github.com/ZachMassia/goserial"
 	"io"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -29,6 +30,7 @@ type Board struct {
 	// A mapping of normal pin number to their analog (A0 style) numbers.
 	// A value of 0x7F (127) means the pin is digital only.
 	analogMapping map[byte]byte
+	m             sync.RWMutex // Maps are not safe for concurrent use.
 
 	// The reverse of the above mapping, used for quick look up of
 	// an analog pin based on it's A0 style number.
@@ -45,6 +47,10 @@ type Board struct {
 	// the capability response and the board is fully configured
 	// and ready to return.
 	ready chan bool
+
+	// The message handling goroutine listens on this channel
+	// for the close event.
+	quit chan bool
 }
 
 // New returns a fully configured Board, with the message handling
@@ -57,6 +63,7 @@ func New(device string) (b *Board, err error) {
 		},
 		ready:           make(chan bool),
 		boardDoneReboot: make(chan bool),
+		quit:            make(chan bool),
 		pins:            make(map[byte]*pin),
 		analogMapping:   make(map[byte]byte),
 	}
@@ -109,7 +116,7 @@ func (b *Board) init() {
 }
 
 func (b *Board) run() {
-	for {
+	iterate := func() {
 		msg := message{}
 		header, _ := b.buf.ReadByte()
 
@@ -120,7 +127,7 @@ func (b *Board) run() {
 			data, err := b.buf.ReadBytes(endSysex)
 			if err != nil {
 				log.Printf("Error reading sysex data: %s", err)
-				continue
+				return
 			}
 			msg.t = sysexMsg
 			msg.data = append([]byte{header}, data...)
@@ -131,18 +138,30 @@ func (b *Board) run() {
 			lsb, err := b.buf.ReadByte()
 			if err != nil {
 				log.Printf("Error reading MIDI lsb: %s", err)
-				continue
+				return
 			}
 			msb, err := b.buf.ReadByte()
 			if err != nil {
 				log.Printf("Error reading MIDI msb: %s", err)
-				continue
+				return
 			}
 			msg.t = midiMsg
 			msg.data = []byte{header, lsb, msb}
 			b.handleCallback(msg)
 		}
 	}
+
+	// The main message handling loop.
+	go func() {
+		for {
+			select {
+			case <-b.quit:
+				return
+			default:
+				iterate()
+			}
+		}
+	}()
 }
 
 func (b *Board) handleCallback(msg message) {
@@ -191,6 +210,9 @@ func (b *Board) initPins(analog, digital map[byte][]byte) {
 
 	b.analogToNormal = make([]byte, len(b.analogMapping))
 
+	b.m.Lock()
+	defer b.m.Unlock()
+
 	// Initialize the analog pins.
 	for pin, modes := range analog {
 		if analogNum, ok := b.analogMapping[pin]; ok {
@@ -221,6 +243,7 @@ func (b *Board) String() string {
 
 // Close properly closes the serial connection to Board b.
 func (b *Board) Close() {
+	b.quit <- true
 	serial.Flush(b.fd, serial.TCIOFLUSH)
 	b.serial.Close()
 }
@@ -237,6 +260,9 @@ func (b *Board) Firmware() string {
 
 // DigitalRead returns the state of the digital pin.
 func (b *Board) DigitalRead(pin byte) (s state, err error) {
+	b.m.RLock()
+	defer b.m.RUnlock()
+
 	p, ok := b.pins[pin]
 	if !ok {
 		return 0, fmt.Errorf("Invalid pin: %d", pin)
@@ -251,10 +277,15 @@ func (b *Board) DigitalWrite(pin byte, s state) (err error) {
 	port := pinToPort(pin)
 	portVal := byte(0)
 
+	b.m.Lock()
 	// Before looping, update the value of the pin DigitalWrite was called on.
 	if p, ok := b.pins[pin]; ok {
 		p.digitalVal = s
 	}
+	b.m.Unlock()
+
+	b.m.RLock()
+	defer b.m.RUnlock()
 
 	// Create the port bitmask.
 	for i := byte(0); i < 8; i++ {
@@ -284,6 +315,9 @@ func (b *Board) DigitalWrite(pin byte, s state) (err error) {
 // If the pin is not in ANALOG or PWM mode, the value
 // is garbage.
 func (b *Board) AnalogRead(pin byte) (v byte, err error) {
+	b.m.RLock()
+	defer b.m.RUnlock()
+
 	p, ok := b.pins[pin]
 	if !ok {
 		return 0, fmt.Errorf("Invalid pin: %d", pin)
@@ -294,6 +328,9 @@ func (b *Board) AnalogRead(pin byte) (v byte, err error) {
 
 // AnalogWrite sets the PWM out value of the analog pin.
 func (b *Board) AnalogWrite(pin, val byte) (err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+
 	p, ok := b.pins[pin]
 	if !ok {
 		return fmt.Errorf("Invalid pin: %d", pin)
@@ -315,6 +352,9 @@ func (b *Board) AnalogWrite(pin, val byte) (err error) {
 
 // SetPinMode set a pin to a given mode if it is supported.
 func (b *Board) SetPinMode(pin, mode byte) (err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+
 	p, ok := b.pins[pin]
 	if !ok {
 		return fmt.Errorf("Invalid pin: %d", pin)
@@ -328,6 +368,9 @@ func (b *Board) SetPinMode(pin, mode byte) (err error) {
 // To use an analog pin in digital mode, pass the normal pin number.
 // This can be obtained by AnalogMapping().
 func (b *Board) SetPinReporting(pin byte, report bool) (err error) {
+	b.m.Lock()
+	defer b.m.Unlock()
+
 	p, ok := b.pins[pin]
 	if !ok {
 		return fmt.Errorf("Invalid pin: %d", pin)
@@ -341,6 +384,9 @@ func (b *Board) SetPinReporting(pin byte, report bool) (err error) {
 // The value is a []byte of pin numbers, in random order.
 func (b *Board) PortToPinMapping() (m map[byte][]byte) {
 	m = make(map[byte][]byte)
+
+	b.m.RLock()
+	defer b.m.RUnlock()
 
 	// Fill the response map.
 	for _, pin := range b.pins {
@@ -384,6 +430,9 @@ func (b *Board) handleAnalogMessage(m message) {
 	pinVal := m.data[1] | m.data[2]<<7
 
 	if int(pinNum) < len(b.analogToNormal) {
+		b.m.Lock()
+		defer b.m.Unlock()
+
 		if pin, ok := b.pins[b.analogToNormal[pinNum]]; ok {
 			pin.analogVal = pinVal
 		}
@@ -393,6 +442,9 @@ func (b *Board) handleAnalogMessage(m message) {
 func (b *Board) handleDigitalMessage(m message) {
 	portNum := m.data[0] & 0x0F
 	portVal := m.data[1] | m.data[2]<<7
+
+	b.m.Lock()
+	defer b.m.Unlock()
 
 	// TODO: Instead of looping over all pins, find the first pin
 	//       of the port and loop over the next eight.
