@@ -261,7 +261,7 @@ func (b *Board) DigitalWrite(pin byte, s state) (err error) {
 		n := 8*port + i // current pin
 		p, ok := b.pins[n]
 		if !ok {
-			err = fmt.Errorf("Bad pin: %d", n) // TODO: Better error msg
+			err = fmt.Errorf("Error writing to port %d: pin %d unavailable", port, n)
 			return err
 		}
 		if p.digitalVal != LOW {
