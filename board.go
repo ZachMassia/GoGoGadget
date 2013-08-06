@@ -81,16 +81,18 @@ func New(device string) (b *Board, err error) {
 
 	b.buf = bufio.NewReader(b.serial)
 
-	// Once init returns, we have received all required
-	// setup messages from the board.
-	b.init()
-
+	err = b.init()
+	if err != nil {
+		// Use Close() instead of serial.Close to ensure the
+		// message handling go routine gets shutdown properly.
+		b.Close()
+	}
 	return
 }
 
 // Prepares Board b for use. Assumes that the serial connection
 // has been properly established.
-func (b *Board) init() {
+func (b *Board) init() (err error) {
 	// Register the callbacks.
 	b.msgHandlers = cbMap{
 		reportVersion:         b.handleReportVersion,
@@ -103,6 +105,8 @@ func (b *Board) init() {
 	// Start the message loop.
 	b.run()
 
+	timeout := time.After(15 * time.Second)
+
 	for {
 		select {
 		case <-b.boardDoneReboot:
@@ -111,6 +115,9 @@ func (b *Board) init() {
 
 		case <-b.ready:
 			return
+
+		case <-timeout:
+			return fmt.Errorf("Timed out trying to configure the board")
 		}
 	}
 }
