@@ -38,9 +38,6 @@ const (
 	// The baud rate the Arduino expects.
 	defaultBaud = 57600
 
-	// A MIDI message is 3 bytes long
-	lenMidiMsg byte = 3
-
 	// Message types
 	midiMsg byte = iota
 	sysexMsg
