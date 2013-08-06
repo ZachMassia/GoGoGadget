@@ -101,7 +101,7 @@ func (b *Board) init() {
 		digitalMessage:        b.handleDigitalMessage,
 	}
 	// Start the message loop.
-	go b.run()
+	b.run()
 
 	for {
 		select {
