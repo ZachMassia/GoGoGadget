@@ -137,22 +137,13 @@ func (p *pin) setReporting(newState bool) (err error) {
 
 	var msg []byte
 
-	// Create the message to send
-	switch {
-	case p.mode == ANALOG:
-		msg = []byte{
-			reportAnalog | p.analogNum,
-			boolToByte(newState),
-		}
+	// Create the message
+	switch p.mode {
+	case ANALOG:
+		msg = []byte{reportAnalog | p.analogNum, boolToByte(newState)}
 
-	case p.mode == OUTPUT || p.mode == INPUT:
-		// TODO: This is only a temporary solution.
-		//       Proper checking for pins in modes
-		//       other than INPUT/OUPUT should be done.
-		msg = []byte{
-			reportDigital | p.port,
-			boolToByte(newState),
-		}
+	case INPUT:
+		msg = []byte{reportDigital | p.port, boolToByte(newState)}
 	}
 	p.serial.Write(msg)
 	return
