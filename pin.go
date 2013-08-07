@@ -6,8 +6,6 @@ import (
 	"io"
 )
 
-type state byte // Compile time check for high/low.
-
 const (
 	// Pin modes
 	INPUT  byte = iota // Digital pin in input mode.
@@ -19,8 +17,8 @@ const (
 	I2C                // Pin included in I2C setup.
 
 	// Pin states
-	LOW  state = 0
-	HIGH state = 1
+	LOW  byte = 0
+	HIGH byte = 1
 )
 
 var (
@@ -75,7 +73,7 @@ type pin struct {
 	// reported value. In PWM/OUPUT, they hold the last
 	// set value.
 	analogVal  byte
-	digitalVal state
+	digitalVal byte
 
 	mode           byte   // The current mode.
 	reporting      bool   // Is the pin (or port in digital mode) reporting.

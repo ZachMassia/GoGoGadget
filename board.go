@@ -266,7 +266,7 @@ func (b *Board) Firmware() string {
 }
 
 // DigitalRead returns the state of the digital pin.
-func (b *Board) DigitalRead(pin byte) (s state, err error) {
+func (b *Board) DigitalRead(pin byte) (s byte, err error) {
 	b.m.RLock()
 	defer b.m.RUnlock()
 
@@ -280,7 +280,7 @@ func (b *Board) DigitalRead(pin byte) (s state, err error) {
 }
 
 // DigitalWrite sets the state of the digital pin.
-func (b *Board) DigitalWrite(pin byte, s state) (err error) {
+func (b *Board) DigitalWrite(pin byte, s byte) (err error) {
 	port := pinToPort(pin)
 	portVal := byte(0)
 
@@ -459,7 +459,7 @@ func (b *Board) handleDigitalMessage(m message) {
 		if pin.port == portNum && pin.mode == INPUT {
 			i := pin.num % 8 // Find the pins number relative to the port
 			pinVal := (portVal >> (i & 0x07)) & 0x01
-			pin.digitalVal = state(pinVal)
+			pin.digitalVal = pinVal
 		}
 	}
 }
