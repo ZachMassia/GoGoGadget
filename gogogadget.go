@@ -1,6 +1,10 @@
 // Package gadget is a framework for communicating to Arduino boards and components.
 package gadget
 
+import (
+	"path/filepath"
+)
+
 const (
 	// The following constants are all from Firmata.h
 	//
@@ -62,6 +66,18 @@ type cbMap map[byte]callback
 
 //
 // -- Utility functions -- //
+
+// FindSerial checks if any serial connections exist at the standard
+// locations ('/dev/ttyACM*', '/dev/ttyUSB*').
+// Returns nil if no connections were found.
+func FindSerial() (s []string) {
+	acm, _ := filepath.Glob("/dev/ttyACM*")
+	usb, _ := filepath.Glob("/dev/ttyUSB*")
+
+	s = append(s, acm...)
+	s = append(s, usb...)
+	return s
+}
 
 func boolToByte(b bool) byte {
 	if b {
