@@ -6,7 +6,7 @@ A framework for communicating to Arduino boards and components using Go and [Fir
 See the docs at [godoc.org][doc].
 
 
-Project is currently on hold and has not been testing in ~6 months.
+Project is currently on hold and has not been tested in ~6 months.
 
 ###Setup
 1. Make sure your [GOPATH][gopath-doc] is properly setup.
